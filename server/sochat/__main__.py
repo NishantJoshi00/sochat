@@ -13,7 +13,6 @@ with os.popen("openssl prime -generate -bits 8") as f:
 class Handler(socketserver.BaseRequestHandler):
 	def handle(self):
 		token = self.handshake()
-		user = self.get_user()
 		user.run()
 	def handshake(self):
 		_t = self.request.recv(1)
@@ -26,9 +25,14 @@ class Handler(socketserver.BaseRequestHandler):
 		self.request.sendall(send_key.to_bytes(2, byteorder='little'))
 		recieve_key = int.from_bytes(self.request.recv(2), 'little')
 		_token = (recieve_key ** _token) % P
+		if _t == b'n':
+			...
+		elif _t == b'e':
+			...
+
 		return _token
-	def get_user(self):
-		...
+	def encrypt(data, token):
+		return data
 
 
 		
