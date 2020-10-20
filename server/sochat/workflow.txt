@@ -1,0 +1,60 @@
+1. When the client Tries to connect to the server
+	1. Check if the user already exists
+	2. If not
+		1. Create a new user
+	3. Else
+		2. Generate a new Key Pair for communication
+
+2. Database Using redis Database
+3. Message Transfer
+	1. If a message is to be sent to an user It will be stored in the user allocated buffer
+
+
+--Schema--
+User {
+	username: string
+	password: string
+	communication_key: hex
+	online: boolean
+	message_buffer: [Message]
+	user_history: [User]
+}
+
+Message {
+	sender: User
+	reciever: User
+	content-type: 'msg'|'file'|''
+	content: string|hex|bytes
+
+}
+
+Room {
+	name: string
+	admin: User
+	members: [User]
+	
+}
+	
+
+-- Connection --
+handshake {
+	1. client -> server {
+		# request Type
+		b'n' {
+			new user
+		}
+		b'e' {
+			existing user
+		}
+	}
+	2. client <-> server {
+		diff-hellmen key exchange
+		'_token' variable for the client and user 
+	}
+	3. client -> server {
+		;e;username;
+		;e;password; 
+	}
+	4. hand over the communication to the User class
+
+}
