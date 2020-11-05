@@ -2,7 +2,7 @@ import asyncio
 import websockets
 import random
 import sys
-from .engine import Chat_Engine, User
+from engine import Chat_Engine, User
 import json
 import os
 host = "127.0.0.1"
@@ -17,6 +17,7 @@ with os.popen("openssl prime -generate -bits 8") as f:
 	
 
 async def handle(websocket: websockets.WebSocketServerProtocol, path):
+	print("Connection Established")
 	action = await websocket.recv()
 	if action == 'login':
 		user_data = await websocket.recv()

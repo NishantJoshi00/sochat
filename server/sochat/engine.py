@@ -5,10 +5,11 @@ import websockets
 from werkzeug.security import generate_password_hash, check_password_hash
 from typing import Union
 import json
+from datetime import datetime
 
 class User:
 	def __init__(self, username: str, password: str):
-		self._username = username
+		self.name = username
 		self._password = generate_password_hash(password)
 		# self._token = None
 		self._buffer = []
@@ -16,6 +17,11 @@ class User:
 	# def set_token(self, token):
 	# 	self._token = token
 	def put_message(self, message):
+		message['sender'] = message['sender'].name
+		message['reciever'] = message['reciever'].name
+		message['datetime']['sender'] = message['datetime']['sender'].isoformat()
+		message['datetime']['server'] = message['datetime']['server'].isoformat()
+		message = json.dumps(message)
 		self._buffer.append(message)
 	def flush(self):
 		_ = self._buffer
@@ -96,8 +102,19 @@ class Chat_Engine():
 		self.configuration = data['info']
 		self._rooms, self._users = data['rooms'], data['users']
 	def parse_message(self, message):
-		...
-		return message
+		message = json.loads(message)
+		new_message = {
+			"sender": self._users[message['sender']],
+			"reciever": self._users[message['reciever']],
+			"content": message['content'],
+			"datetime": {
+				"sender": datetime.fromisoformat(message['datetime']['sender']),
+				'server': datetime.now()
+			},
+			'hash': None
+
+		}
+		return new_message
 	def route(self, message):
 		message = self.parse_message(message)
 		recv = message['reciever']

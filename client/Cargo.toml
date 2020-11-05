@@ -1,5 +1,5 @@
 [package]
-name = "client"
+name = "sochat-client"
 version = "0.1.0"
 authors = ["Nishant Joshi <nishantjo.12@gmail.com>"]
 edition = "2018"
