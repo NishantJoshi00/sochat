@@ -1,0 +1,17 @@
+[package]
+name = "rust_client"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+websocket = "*"
+clap = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
+openssl-sys = "*"
+openssl = "*"
+colored = "2.0.0"
+rand = "*"
+# C:\Users\nisha\vcpkg\installed\x64-windows-static
