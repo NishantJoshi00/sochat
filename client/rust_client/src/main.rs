@@ -1,4 +1,6 @@
 use websocket::{ClientBuilder};
+// use websocket::stream::async::AsyncStream;
+
 
 use std::io::stdin;
 use std::sync::mpsc::channel;
@@ -14,6 +16,29 @@ use packets::{init_config, User, WsMessage};
 use websocket::OwnedMessage;
 use openssl::rsa::Rsa;
 use colored::*;
+
+
+fn encode_v_s(value: Vec<u8>) -> String {
+    let mut encoded = String::new();
+    for i in value {
+        encoded.push_str(&format!("{:02x}", i));
+    }
+    encoded
+}
+
+fn decode_s_v(value: String) -> Vec<u8> {
+    let mut decoded = Vec::new();
+    let mut hex = String::new();
+    for i in value.chars() {
+        hex.push(i);
+        if hex.len() == 2 {
+            decoded.push(u8::from_str_radix(&hex, 16).unwrap());
+            hex.clear();
+        }
+    }
+    decoded
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
 
     // CLI Startup
@@ -38,9 +63,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         let contents = fs::read("./config/private_key.pem")?;
         let private_key = Rsa::private_key_from_pem(contents.as_slice())?;
         let mut user: User = serde_json::from_slice(fs::read("./config/user.cfg")?.as_slice())?;
+
+
+
         let client = ClientBuilder::new(&url)?.connect_insecure()?;
-        // Connection established
+        // let client = ClientBuilder::new(&url)?.connect_secure(None)?;
+
+
         let (mut reciever, mut sender) = client.split()?;
+        
+
+        
+        // Connection established
+
+
+
+
         let (tx, rx) = channel();
         let _ = sender.send_message(&OwnedMessage::Text(serde_json::to_string(&user)?));
 
@@ -54,7 +92,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             _ => ()
         }; 
 
-        println!("User: {}", user);
+
+
+
+        println!("Logged in as {}#{}", user.name, user.id);
+
+
+
+        // Event loops
         let tx_1 = tx.clone();
 
         let sender_loop = std::thread::spawn(move || {
@@ -111,21 +156,43 @@ fn main() -> Result<(), Box<dyn Error>> {
                     OwnedMessage::Text(msg) => {
                         let message: WsMessage = serde_json::from_str(msg.as_str()).unwrap();
                         if !message.encrypted {
-                            println!("{}: {}", message.from, message.data);
+                            println!("{}: {}", message.from.bold().yellow(), message.data);
                         } else {
-                            let mut decrypted: Vec<u8> = Vec::new();
-                            let _ = private_key.private_decrypt(message.data.as_bytes(), &mut decrypted, openssl::rsa::Padding::PKCS1).unwrap();
-                            println!("{}: {}", message.from, String::from_utf8(decrypted).unwrap());
+                            let data_t_e = decode_s_v(message.data);
+                            let mut a = 256;
+                            while data_t_e.len() > a {
+                                a = a << 1;
+                            }
+                        
+                            let mut decrypted: Vec<u8> = vec![0; a];
+                            let _ = private_key.private_decrypt(&data_t_e, &mut decrypted, openssl::rsa::Padding::PKCS1).unwrap();
+                            println!("{}: {}", message.from.bold().green(), String::from_utf8(decrypted).unwrap());
                         }
                     }
                     _ => ()
                 }
             }
         });
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        // user interaction logic
         let mut indicator = String::from("");
         let mut public_key: Option<openssl::rsa::Rsa<openssl::pkey::Public>> = None;
         loop {
-            print!("{} ", &indicator);
+            // println!("{} ", &indicator);
             let mut input = String::new();
             stdin().read_line(&mut input)?;
             let finput = input.trim();
@@ -134,13 +201,22 @@ fn main() -> Result<(), Box<dyn Error>> {
                     print_help();
                     continue;
                 },
+                "?online" => {
+                    let send = WsMessage {
+                        encrypted: false,
+                        data: format!("/online {}#{}", &user.name, &user.id),
+                        from: format!("{}#{}", &user.name, &user.id),
+                        to: "server".to_owned()
+                    };
+                    OwnedMessage::Text(serde_json::to_string(&send).unwrap())
+                }
                 "?refresh" => {
-                    let paths = fs::read_dir("./config/con/").unwrap();
-                    let mut users = String::new(); 
+                    let paths = fs::read_dir("./config/connections/").unwrap();
+                    let mut users = String::new();  
                     users.push_str("/active ");
                     for path in paths {
                         let p = path.unwrap();
-                        users.push_str(p.path().file_name().unwrap().to_str().unwrap());
+                        users.push_str(p.path().file_name().unwrap().to_str().unwrap().split(".").into_iter().next().unwrap());
                         users.push_str(" ");
                     }
 
@@ -162,18 +238,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                         name.next();
                         let name = name.as_str();
                         let mut current: Vec<String> = Vec::new();
-                        let paths = fs::read_dir("./config/con/").unwrap();
+                        let paths = fs::read_dir("./config/connections/").unwrap();
                         for path in paths {
                             let p = path.unwrap();
                             let f_name = p.path().file_name().unwrap().to_str().unwrap().to_string();
                             if startswith(&f_name, &name.to_owned()) {
-                                current.push(f_name.clone());
+                                current.push(f_name.split(".").into_iter().next().unwrap().to_string());
                             }
                         }
                         if current.len() > 1 {
-                            print!("{} names found: ", current.len());
+                            println!("{} names found: ", current.len());
                             for name in &current {
-                                print!("{}, ", name);
+                                println!("{}, ", name);
                             }
                             println!("");
                             continue;
@@ -184,7 +260,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                         }
                         let to_name = current.pop().unwrap();
                         indicator = to_name.clone();
-                        public_key = Some(Rsa::public_key_from_pem(fs::read(format!("./config/con/{}.pem", indicator)).unwrap().as_slice()).unwrap());
+                        println!("Connected to /{}", &indicator.green().bold());
+                        public_key = Some(Rsa::public_key_from_pem(fs::read(format!("./config/connections/{}.pem", indicator)).unwrap().as_slice()).unwrap());
                         continue;
                     } else {
                         if indicator == "" {
@@ -192,19 +269,29 @@ fn main() -> Result<(), Box<dyn Error>> {
                             continue;
                             
                         } else {
-
-                            let mut buf: Vec<u8> = Vec::new();
-                            let _ = match &public_key {
-                                Some(pky) => pky.public_encrypt(val.as_bytes(), &mut buf, openssl::rsa::Padding::PKCS1).unwrap(),
+                            let buf = match &public_key {
+                                Some(pky) => {
+                                    let data_t_e: Vec<u8> = String::from(val).into_bytes();
+                                    let mut a = 256;
+                                    while data_t_e.len() > a {
+                                        a = a << 1;
+                                    }
+                                
+                                    let mut buf: Vec<u8> = vec![0; a];
+                                    
+                                    pky.public_encrypt(val.as_bytes(), buf.as_mut_slice(), openssl::rsa::Padding::PKCS1).unwrap();
+                                    buf
+                                },
                                 None => {
                                     println!("{}: Something went wrong while loading the key", "Error".red().bold());
                                     println!("{}: Please select a user again to continue", "Hint".yellow().bold());
                                     continue;
                                 }
                             };
+                            let message_to_send = encode_v_s(buf);
                             let send = WsMessage {
                                 encrypted: true,
-                                data: std::str::from_utf8(&buf).unwrap().to_owned(),
+                                data: message_to_send,
                                 from: format!("{}#{}",user.name, user.id),
                                 to: indicator.to_owned()
                             };

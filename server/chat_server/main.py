@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+# from typing import Dict, Optional
 from fastapi import FastAPI
 from pydantic import BaseModel
 import psutil
@@ -20,9 +20,9 @@ async def health():
         'memory': psutil.virtual_memory(),
     }
 
+
 @app.websocket_route("/ws")
 async def ws_route(websocket: WebSocket):
     await websocket.accept()
-    while True:
-        await handler.websocket_handler(websocket, clients)
+    await handler.websocket_handler(websocket, clients)
         

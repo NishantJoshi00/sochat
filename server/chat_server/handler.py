@@ -1,11 +1,13 @@
 from fastapi import websockets
 from pydantic import BaseModel
-from fastapi.websockets import WebSocket
+from fastapi.websockets import WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState
 from typing import Dict, List
 from pydantic import BaseModel
 from pydantic.error_wrappers import ValidationError
 import random
 import threading
+from typing import Union
 import shelve
 import asyncio
 class User(BaseModel):
@@ -15,6 +17,13 @@ class User(BaseModel):
 
     def __str__(self):
         return self.name + "#" + self.id
+    
+    def debug(self):
+        return f'{self.name}#{self.id} : {self.token}'
+    
+    # compare to string
+    def __eq__(self, other):
+        return str(self) == other
 
 class Message(BaseModel):
     encrypted: bool
@@ -22,11 +31,18 @@ class Message(BaseModel):
     from_: str
     to: str
 
-    def dict(self, *, include: Union['AbstractSetIntStr', 'MappingIntStrAny'] = None, exclude: Union['AbstractSetIntStr', 'MappingIntStrAny'] = None, by_alias: bool = False, skip_defaults: bool = None, exclude_unset: bool = False, exclude_defaults: bool = False, exclude_none: bool = False) -> 'DictStrAny':
+
+    def dict(self, *, include= None, exclude= None, by_alias: bool = False, skip_defaults: bool = None, exclude_unset: bool = False, exclude_defaults: bool = False, exclude_none: bool = False) -> dict:
         di = super().dict(include=include, exclude=exclude, by_alias=by_alias, skip_defaults=skip_defaults, exclude_unset=exclude_unset, exclude_defaults=exclude_defaults, exclude_none=exclude_none)
         di['from'] = di['from_']
         del di['from_']
         return di
+
+
+
+def disconnect_user(user, clients):
+    index = [i for i, ii in enumerate(clients) if ii['user'] == user][0]
+    clients.pop(index)
 
 async def validate_user(client_cred: User, clients: List, websocket):
     if client_cred.id == "-1":
@@ -42,6 +58,7 @@ async def validate_user(client_cred: User, clients: List, websocket):
         clients.append({'user': client_cred, 'messages': []})
         return client_cred
     else:
+
         with shelve.open('clients.dbm') as dbm:
             ids = list(dbm.keys())
             if (client_cred.name + '#' + client_cred.id) not in ids:
@@ -54,44 +71,72 @@ async def validate_user(client_cred: User, clients: List, websocket):
 
 
 async def reciever_boi(websocket: WebSocket, clients: List[Dict], current_user: User):
-    ...
-    while True:
-        if not websocket.open:
-            break
+    try:
+        while True:
+            # print(websocket.application_state, websocket.client_state)
+            
+            # if not websocket.open:
+            #     break
+            if not (websocket.application_state == WebSocketState.CONNECTED and websocket.client_state == WebSocketState.CONNECTED):
+                break
 
-        data = await websocket.receive_json()
-        
-        data['from_'] = data['from']
-        del data['from']
-        data = Message.parse_obj(data)
+            data = await websocket.receive_json()
+            
+            data['from_'] = data['from']
+            del data['from']
+            data = Message.parse_obj(data)
 
-        if data.from_ != str(current_user):
-            print("Invalid sender")
-            continue
-        
-        if data.to == 'server':
-            server_instruction(data, clients)
-            continue
-        
-        [ii for ii in clients if ii['user'] == data.to][0]['message'].append(data)
+            if data.from_ != str(current_user):
+                print("Invalid sender")
+                continue
+            
+            if data.to == 'server':
+                server_instruction(data, clients)
+                continue
+            
+            [ii for ii in clients if ii['user'] == data.to][0]['messages'].append(data)
+    except Exception as e:
+        # print(e)
+        print("{} disconnected".format(current_user))
+        disconnect_user(current_user, clients)
+
 
 def server_instruction(data: Message, clients: List[Dict]):
+    print(data)
     key = data.data.split(' ')[0]
     if key == '/active':
-        requested_users = data.data.split(' ')[1:]
+        requested_users = [name for name in data.data.split(' ')[1:]]
         msg = ''
         for ii in clients:
+            print(ii['user'], requested_users)
             if str(ii['user']) in requested_users:
                 msg += str(ii['user']) + ': active'
         new_data = Message(encrypted=False, data=msg, from_='server', to=data.from_)
-        [ii for ii in clients if ii['user'] == data.to][0]['message'].append(new_data)
+        [ii for ii in clients if ii['user'] == new_data.to][0]['messages'].append(new_data)
+    elif key == '/online':
+        user_info = data.data.split(' ')[1]
+        from_user = data.from_
+
+        
+        if user_info == from_user:
+            msg = 'You are online'
+        else:
+            msg = 'Something is wrong in your configuration'
+        new_data = Message(encrypted=False, data=msg, from_='server', to=data.from_)
+        
+        [ii for ii in clients if ii['user'] == new_data.to][0]['messages'].append(new_data)
+
                 
 
 
 async def sender_boi(websocket: WebSocket, clients: List[Dict], current_user: User):
     while True:
-        if not websocket.open:
+        # print(websocket.application_state, websocket.client_state, websocket.state)
+        # if not websocket.open:
+        #     break
+        if not (websocket.application_state == WebSocketState.CONNECTED and websocket.client_state == WebSocketState.CONNECTED):
             break
+        
         msgs = [ii for ii in clients if str(ii['user']) == str(current_user)][0]['messages']
         while len(msgs) > 0:
             await websocket.send_json(msgs.pop(0).dict())
@@ -115,10 +160,8 @@ async def websocket_handler(websocket: WebSocket, clients: List[Dict]):
     if new_creds == None:
         return
     await websocket.send_json(new_creds.dict())
-
-    loop = asyncio.get_event_loop()
-    loop.create_task(sender_boi(websocket, clients, client_cred))
-    loop.run_until_complete(reciever_boi(websocket, clients, client_cred))
-    loop.close()
+    asyncio.create_task(sender_boi(websocket, clients, client_cred))
+    await reciever_boi(websocket, clients, client_cred)
+    
         
     
