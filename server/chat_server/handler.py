@@ -41,8 +41,17 @@ class Message(BaseModel):
 
 
 def disconnect_user(user, clients):
-    index = [i for i, ii in enumerate(clients) if ii['user'] == user][0]
+    index = [i for i, ii in enumerate(clients) if ii['user'] == user]
+    if len(index) == 0:
+        return
+    index = index[0]
     clients.pop(index)
+
+
+def send_message(clients, message):
+    sent = len([client['messages'].append(message) for client in clients if client['user'] == message.to])
+    if sent == 0:
+        send_message(clients, Message(encrypted=False, data='{} is not online'.format(message.to), from_='server', to=message.from_))
 
 async def validate_user(client_cred: User, clients: List, websocket):
     if client_cred.id == "-1":
@@ -66,6 +75,10 @@ async def validate_user(client_cred: User, clients: List, websocket):
                 websocket.close()
                 return
             else:
+                if len([False for client in clients if client['user'] == client_cred]) != 0:
+                    await websocket.send("INVALID");
+                    websocket.close()
+                    return
                 clients.append({'user': client_cred, 'messages': []})
                 return client_cred
 
@@ -94,7 +107,9 @@ async def reciever_boi(websocket: WebSocket, clients: List[Dict], current_user: 
                 server_instruction(data, clients)
                 continue
             
-            [ii for ii in clients if ii['user'] == data.to][0]['messages'].append(data)
+            # [ii for ii in clients if ii['user'] == data.to][0]['messages'].append(data)
+            send_message(clients, data)
+
     except Exception as e:
         # print(e)
         print("{} disconnected".format(current_user))
@@ -112,7 +127,8 @@ def server_instruction(data: Message, clients: List[Dict]):
             if str(ii['user']) in requested_users:
                 msg += str(ii['user']) + ': active'
         new_data = Message(encrypted=False, data=msg, from_='server', to=data.from_)
-        [ii for ii in clients if ii['user'] == new_data.to][0]['messages'].append(new_data)
+        # [ii for ii in clients if ii['user'] == new_data.to][0]['messages'].append(new_data)
+        send_message(clients, new_data)
     elif key == '/online':
         user_info = data.data.split(' ')[1]
         from_user = data.from_
@@ -124,7 +140,8 @@ def server_instruction(data: Message, clients: List[Dict]):
             msg = 'Something is wrong in your configuration'
         new_data = Message(encrypted=False, data=msg, from_='server', to=data.from_)
         
-        [ii for ii in clients if ii['user'] == new_data.to][0]['messages'].append(new_data)
+        # [ii for ii in clients if ii['user'] == new_data.to][0]['messages'].append(new_data)
+        send_message(clients, new_data)
 
                 
 
@@ -137,7 +154,11 @@ async def sender_boi(websocket: WebSocket, clients: List[Dict], current_user: Us
         if not (websocket.application_state == WebSocketState.CONNECTED and websocket.client_state == WebSocketState.CONNECTED):
             break
         
-        msgs = [ii for ii in clients if str(ii['user']) == str(current_user)][0]['messages']
+        msgs = [ii for ii in clients if str(ii['user']) == str(current_user)]
+        if len(msgs) == 0:
+            continue
+        msgs = msgs[0]['messages']
+
         while len(msgs) > 0:
             await websocket.send_json(msgs.pop(0).dict())
         await asyncio.sleep(.1)

@@ -3,3 +3,5 @@
 *.dir
 *.dat
 *.bak
+*config/*
+*.7z
